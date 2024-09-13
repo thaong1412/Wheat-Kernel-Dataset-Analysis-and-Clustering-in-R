@@ -1,0 +1,713 @@
+# Wheat Kernel Dataset Analysis and Clustering
+
+This project analyzes the `newseeds.csv` dataset, which contains measurements of geometrical properties of kernels from three wheat varieties. Using R, I explored the data through thorough statistical analysis and clustering techniques. Key tasks include:
+
+## 1. Exploratory Data Analysis (EDA)
+- Checked for missing data programmatically.
+- Investigated variable correlations.
+- Counted seed varieties A, B, and C.
+
+## 2. Analysis of Variable Differences
+- Assessed if the seven variables differ across the three wheat varieties using statistical tests and visualizations.
+
+## 3. K-means Clustering
+- Applied K-means with 3 clusters.
+- Justified whether data scaling is necessary.
+- Visualized clusters and evaluated the clustering quality.
+
+## 4. Silhouette Analysis
+- Calculated silhouette scores and analyzed:
+  - Number of negative scores.
+  - Percentage of scores below 0.1.
+  - Average silhouette scores for each cluster and overall.
+
+## 5. Cluster Number Determination
+- Used multiple approaches, including internal validation metrics and the Dunn index, to identify the optimal number of clusters.
+
+This project highlights robust data analysis, clustering techniques, and clean, efficient R code.
+
+_________________
+
+
+```{r}
+df <- read.csv("newseeds.csv")
+
+head(df)
+```
+```{r}
+# Get the dimensions of the dataset
+dataset_dimensions <- dim(df)
+
+# Print the dimensions
+cat("Number of rows:", dataset_dimensions[1], "\n")
+cat("Number of columns:", dataset_dimensions[2], "\n")
+```
+
+```{r}
+summary(df)
+```
+### Checking for Missing Values
+
+```{r}
+sum(is.na(df))
+```
+
+```{r}
+# Check for missing values in the entire dataset
+missing_values_summary <- sapply(df, function(x) sum(is.na(x)))
+
+# Print the summary of missing values
+print(missing_values_summary)
+
+```
+
+The dataset has no missing values. 
+
+# 1. Exploratory data analysis (EDA
+
+### Bar chart of the categorical variable: "Type" 
+
+```{r}
+# Count the number of seeds by type
+type_counts <- table(df$Type)
+
+# Draw the bar chart
+barplot(type_counts, main="Bar Chart of Seed Types",
+        xlab="Type", ylab="Frequency", col='lightblue', border='black')
+
+```
+
+```{r}
+type_counts
+```
+
+Seed type A, b, c have similar counts. 
+
+### Histograms of numerical variables 
+
+```{r}
+# Load necessary library for plotting
+library(ggplot2)
+
+# Create histograms for each numerical variable
+numeric_columns <- df[, -which(names(df) == "Type")]
+
+# Set up plotting area
+par(mfrow=c(2, 4))  # Adjust the layout as needed, here 2 rows and 4 columns
+
+# Plot histograms
+for (col_name in names(numeric_columns)) {
+  hist(numeric_columns[[col_name]], main=paste("Histogram of", col_name),
+       xlab=col_name, col='lightblue', border='black')
+}
+
+```
+
+Based on the observation:
+
+- The distribution of V3 seems to be left-skewed. 
+
+- The distribution of V1, V2,V4 and V7 seems to be right-skewed. 
+
+- The distribution of V5 and V6 seems to be normally distributed.  
+
+### Create a Pair Plot with Color by Type
+
+```{r}
+# install.packages("GGally") 
+```
+
+```{r}
+
+library(GGally)
+library(ggplot2)
+
+# Ensure 'Type' is treated as a factor for coloring
+df$Type <- as.factor(df$Type)
+
+# Create the pair plot
+pair_plot <- ggpairs(df, 
+                     columns = 1:7,  # Adjust according to the number of numerical columns
+                     aes(color = Type, alpha = 0.7),
+                     title = "Pair Plot of Numerical Variables by Seed Type")
+
+# Print the pair plot
+print(pair_plot)
+
+```
+There are a lot of pairs that are linear correlated. 
+
+Example: V1 seems to be highly correlated with V2, V3, V4 and V7. 
+
+V2 seems to be highly correlated with V1, V4, V5, v7 ...
+
+### Check for Correlations Between Variables
+
+```{r}
+correlation_matrix <- cor(df[, -which(names(df) == "Type")], use = "complete.obs")
+
+# Print the correlation matrix
+print(correlation_matrix)
+
+```
+```{r}
+# Optional: Visualize the correlation matrix using a heatmap
+library(heatmaply)
+heatmaply(correlation_matrix, main = "Correlation Heatmap")
+```
+
+
+##### Count the number of seeds by type 
+
+```{r}
+
+# Print the counts for each type
+print(type_counts)
+
+# Extract counts for specific types if needed
+type_A_count <- type_counts["A"]
+type_B_count <- type_counts["B"]
+type_C_count <- type_counts["C"]
+
+# Print individual counts
+cat("Number of Type A seeds:", type_A_count, "\n")
+cat("Number of Type B seeds:", type_B_count, "\n")
+cat("Number of Type C seeds:", type_C_count, "\n")
+
+```
+
+
+```{r}
+library(dplyr)
+
+# Summary statistics for each variable by type
+summary_stats <- df %>%
+  group_by(Type) %>%
+  summarise(across(V1:V7, list(mean = mean, sd = sd, median = median), .names = "{col}_{fn}"))
+
+# Print summary statistics
+print(summary_stats)
+
+```
+
+The statistics are different between each type for each variables.   
+
+### Create boxplots for each numerical variable
+
+```{r}
+plot_list <- list()
+for (var in names(df)[1:7]) {
+  p <- ggplot(df, aes(x = Type, y = .data[[var]], fill = Type)) +
+    geom_boxplot() +
+    labs(title = paste("Boxplot of", var, "by Type"), x = "Type", y = var) +
+    theme_minimal()
+  plot_list[[var]] <- p
+}
+
+# Display plots
+print(plot_list$V1)
+print(plot_list$V2)
+print(plot_list$V3)
+print(plot_list$V4)
+print(plot_list$V5)
+print(plot_list$V6)
+print(plot_list$V7)
+
+```
+
+We can see that V3 and V6 have different distributions compared with other variables. 
+
+# 2. Perform ANOVA to check for significant differences between types for each variable
+
+I will perform ANOVA test to compare the mean between each type for each variable 
+
+For each variable (V1 to V7) and the seed types (A, B, C) , the hypothesis can be expressed as: 
+
+H0:μA=μB=μC  or All seed types' means are equal (no significant differences among the means).
+
+Where μA, μB, and μC are the population means of the seed types A, B, and C, respectively.
+
+H1: At least one pair of group means is different (there is a significant difference among the means).
+
+```{r}
+# List of variable names
+variables <- names(df)[1:7]
+
+# Perform ANOVA for each variable and store the results
+anova_results <- lapply(variables, function(var) {
+  formula <- as.formula(paste(var, "~ Type"))
+  aov(formula, data = df)
+})
+
+# Summarize the results
+summaries <- lapply(anova_results, summary)
+
+# Print the summaries
+for (i in 1:length(variables)) {
+  cat("ANOVA for", variables[i], ":\n")
+  print(summaries[[i]])
+  cat("\n")
+}
+
+```
+Intepretation with the levels of significance: α=0.05
+
+- For V1, p-value = <2e-16 which is smaller than 0.05,so we are 95% confident that we have enough evidence to reject the null hypothesis and conclude that there are statistically significant differences among the means of the three types/varieties of seeds for V1.
+
+- For V2, p-value = <2e-16 which is smaller than 0.05,so we are 95% confident that we have enough evidence to reject the null hypothesis and conclude that there are statistically significant differences among the means of the three types/varieties of seeds for V2.
+
+- For V3, p-value = <2e-16 which is smaller than 0.05,so we are 95% confident that we have enough evidence to reject the null hypothesis and conclude that there are statistically significant differences among the means of the three types/varieties of seeds for V3.
+
+- For V4, p-value = <2e-16 which is smaller than 0.05,so we are 95% confident that we have enough evidence to reject the null hypothesis and conclude that there are statistically significant differences among the means of the three types/varieties of seeds for V4.
+
+- For V5, p-value = <2e-16 which is smaller than 0.05,so we are 95% confident that we have enough evidence to reject the null hypothesis and conclude that there are statistically significant differences among the means of the three types/varieties of seeds for V5.
+
+- For V6, p-value = <2e-16 which is smaller than 0.05,so we are 95% confident that we have enough evidence to reject the null hypothesis and conclude that there are statistically significant differences among the means of the three types/varieties of seeds for V6.
+
+- For V7, p-value = <2e-16 which is smaller than 0.05,so we are 95% confident that we have enough evidence to reject the null hypothesis and conclude that there are statistically significant differences among the means of the three types/varieties of seeds for V7.
+
+# 3. Run K-means with 3 clusters on the dataset
+
+I decided to scale the data before runing K-means because variables (V1 to V7) have different scales (units). 
+
+K-means clustering is a distance-based algorithm, and variables with larger ranges can dominate the distance calculation. For this reason, scaling is crucial for K-means clustering to ensure that all variables contribute equally to the clustering process. 
+
+
+```{r}
+summary(df)
+```
+
+```{r}
+df_km <- df[, -8]
+
+df.scaled <- scale(df_km)
+
+head(df.scaled)
+```
+```{r}
+library(factoextra)
+library(cluster)
+
+set.seed(123)
+km.res <- kmeans(df.scaled, 3, nstart = 25)
+```
+
+#####Print the results
+```{r}
+print(km.res)
+```
+
+####Accessing to the results of kmeans() function
+
+#####Cluster number for each of the observations
+
+```{r}
+#km.res$cluster
+
+head(km.res$cluster, 10)
+
+```
+
+
+#####Cluster size
+
+```{r}
+km.res$size
+```
+
+#####Cluster means
+
+```{r}
+km.res$centers
+```
+
+####Visualizing k-means clusters
+
+If we have a multi-dimensional data set, a solution is to perform Principal Component Analysis (PCA) and to plot data points according to the first two principal components coordinates.
+
+
+```{r}
+fviz_cluster(km.res, data = df.scaled,
+             palette = c("#2E9FDF", "#E7B800", "#FC4E07"), 
+             ellipse.type = "euclid", # Concentration ellipse
+             star.plot = TRUE, # Add segments from centroids to items
+             repel = TRUE, # Avoid label overplotting (slow)
+             ggtheme = theme_minimal()
+             )
+```
+
+
+```{r}
+# K-means clustering
+km.res1 <- eclust(df.scaled, "kmeans", k = 3, nstart = 25, graph = FALSE)
+# Visualize k-means clusters
+fviz_cluster(km.res1, geom = "point", ellipse.type = "norm",
+             palette = "jco", ggtheme = theme_minimal())
+```
+
+# 4. Silhouette analysis
+
+#### Calculate Silhouette Scores
+
+```{r}
+fviz_silhouette(km.res1, palette = "jco", 
+                ggtheme = theme_classic())
+```
+The silhouette coefficient (Si) measures how similar an object i is to the
+the other objects in its own cluster versus those in the neighbor cluster. Si values
+range from 1 to - 1:
+
+- A value of Si close to 1 indicates that the object is well clustered. In the other
+words, the object i is similar to the other objects in its group.
+- A value of Si close to -1 indicates that the object is poorly clustered, and that
+assignment to some other cluster would probably improve the overall results.
+
+```{r}
+# Silhouette information
+silinfo <- km.res1$silinfo
+ names(silinfo)
+```
+
+
+```{r}
+# Silhouette widths of each observation
+ head(silinfo$widths[, 1:3], 10)
+```
+
+
+#### How many silhouette scores are negative?
+
+```{r}
+# Silhouette width of observation
+sil <- km.res1$silinfo$widths[, 1:3]
+
+# Objects with negative silhouette
+neg_sil_index <- which(sil[, 'sil_width'] < 0)
+sil[neg_sil_index, , drop = FALSE]
+```
+```{r}
+negative_silhouette_count <- length(neg_sil_index)
+
+negative_silhouette_count
+```
+
+For the entire data, there are 2 negative silhouette scores from cluster 2, neighbor 1 with sil_width:-0.0003692162 and -0.0038330091. 
+
+#### what percentage of the silhouette scores have values that are less than 0.1?
+
+
+```{r}
+dim(sil)[1]
+```
+
+```{r}
+# Objects with negative silhouette
+sil_index_0.1 <- which(sil[, 'sil_width'] < 0.1)
+sil[sil_index_0.1, , drop = FALSE]
+```
+
+
+```{r}
+length(sil_index_0.1)
+```
+
+```{r}
+# percentage
+
+percentage_less_0.1 <- (length(sil_index_0.1) / dim(sil)[1])*100
+
+percentage_less_0.1
+```
+
+For the entire dataset, we have 20 silhouette scores have values that are less than 0.1. 
+
+For the entire dataset, the percentage of the silhouette scores have values that are less than 0.1 is 9.708738%. 
+
+#### For each of the 3 clusters, identify the rows of the dataset that have silhouette scores less than 0.1.
+
+
+```{r}
+rows_less_than_0.1_by_cluster <- lapply(unique(sil$cluster), function(cluster_num) {
+  rows <- which(sil$cluster == cluster_num & sil$sil_width < 0.1)
+  return(rows)
+})
+
+# Print the rows with silhouette scores less than 0.1 for each cluster
+names(rows_less_than_0.1_by_cluster) <- paste("Cluster", unique(sil$cluster))
+
+rows_less_than_0.1_by_cluster
+
+```
+Mapping to the original dataset
+
+```{r}
+# Identify rows in the original dataset (df) that have silhouette scores < 0.1 for each cluster
+rows_in_df_less_than_0.1_by_cluster <- lapply(rows_less_than_0.1_by_cluster, function(row_indices) {
+  df[row_indices, ]
+})
+
+# Print the rows of the original dataset with silhouette scores < 0.1 for each cluster
+names(rows_in_df_less_than_0.1_by_cluster) <- paste("Cluster", unique(sil$cluster))
+rows_in_df_less_than_0.1_by_cluster
+
+```
+
+
+####  What is the average silhouette score (exact to 3 decimal places) for each cluster?
+
+```{r}
+# Average silhouette width of each cluster
+silinfo$clus.avg.widths
+```
+
+
+```{r}
+# Calculate the average silhouette score for each cluster
+average_silhouette_by_cluster <- aggregate(sil_width ~ cluster, data = sil, mean)
+
+# Print the average silhouette score for each cluster (to 3 decimal places)
+average_silhouette_by_cluster$sil_width <- round(average_silhouette_by_cluster$sil_width, 3)
+average_silhouette_by_cluster
+
+```
+
+The average silhouette score (exact to 3 decimal places) for cluster 1: 0.402.
+The average silhouette score (exact to 3 decimal places) for cluster 2: 0.337.
+
+The average silhouette score (exact to 3 decimal places) for cluster 3: 0.468.
+
+#### What is the average silhouette score (exact to 3 decimal places) for the entire dataset?
+
+
+```{r}
+# The total average (mean of all individual silhouette widths)
+ silinfo$avg.width
+```
+
+```{r}
+round(silinfo$avg.width,3)
+```
+
+The average silhouette score (exact to 3 decimal places) for the entire dataset is 0.402. 
+
+# 5. Identify the ideal number of clusters for this dataset when using K-means.
+
+## Finding optimal clusters
+
+#### Elbow method
+
+```{r}
+fviz_nbclust(df.scaled, kmeans, iter.max = 10, nstart = 25, method = "wss") +
+    geom_vline(xintercept = 3, linetype = 2)+
+  labs(subtitle = "Elbow method")
+
+```
+
+
+#### Silhouette method
+```{r}
+fviz_nbclust(df.scaled, kmeans, iter.max = 10, nstart = 25, method = "silhouette")+
+  labs(subtitle = "Silhouette method")
+
+```
+
+#### Gap statistic
+```{r}
+# nboot = 50 to keep the function speedy. 
+# recommended value: nboot= 500 for your analysis.
+# Use verbose = FALSE to hide computing progression.
+set.seed(123)
+fviz_nbclust(df.scaled, kmeans,iter.max = 10, nstart = 25,  method = "gap_stat", nboot = 50)+
+  labs(subtitle = "Gap statistic method")
+
+```
+- Elbow method: 3 clusters solution suggested
+
+- Silhouette method: 2 clusters solution suggested
+
+- Gap statistic method: 3 clusters solution suggested
+
+According to these observations, it’s possible to define k = 3 as the optimal number of clusters in the data.
+
+## Internal validation metrics.
+
+```{r}
+library(clValid)
+```
+
+```{r}
+# Compute clValid
+clmethods <- c("hierarchical","kmeans","pam")
+
+intern <- clValid(df.scaled, nClust = 2:6, 
+              clMethods = clmethods, validation = "internal")
+# Summary
+summary(intern)
+```
+It can be seen that Kmeans clustering with two clusters performs the best in each case for connectivity and Silhouette measures). 
+
+However, the number of clusters is appropriate based on the Dunn index is 3. 
+
+#### Visualization
+
+```{r}
+
+
+# Define k values and metrics
+k_values <- c(2, 3, 4, 5, 6)
+connectivity <- c(17.1071, 40.0107, 63.2012, 77.1575, 96.4766)
+dunn <- c(0.0871, 0.1192, 0.0665, 0.0815, 0.0815)
+silhouette <- c(0.4661, 0.4018, 0.3474, 0.2889, 0.2737)
+
+# Create a data frame for each metric
+df_metrics <- data.frame(
+  k = rep(k_values, 3),
+  Metric = rep(c("Connectivity", "Dunn Index", "Silhouette Score"), each = length(k_values)),
+  Value = c(connectivity, dunn, silhouette)
+)
+
+
+```
+
+
+```{r}
+# Plot Connectivity
+p1 <- ggplot(subset(df_metrics, Metric == "Connectivity"), aes(x = k, y = Value, color = Metric)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Connectivity for Different k Values",
+       x = "Number of Clusters (k)",
+       y = "Connectivity") +
+  theme_minimal()
+
+# Plot Dunn Index
+p2 <- ggplot(subset(df_metrics, Metric == "Dunn Index"), aes(x = k, y = Value, color = Metric)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Dunn Index for Different k Values",
+       x = "Number of Clusters (k)",
+       y = "Dunn Index") +
+  theme_minimal()
+
+# Plot Silhouette Scores
+p3 <- ggplot(subset(df_metrics, Metric == "Silhouette Score"), aes(x = k, y = Value, color = Metric)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Silhouette Scores for Different k Values",
+       x = "Number of Clusters (k)",
+       y = "Silhouette Score") +
+  theme_minimal()
+
+# Display plots
+print(p1)
+print(p2)
+print(p3)
+
+```
+
+```{r}
+library(gridExtra)
+
+# Combine the plots into a grid
+grid.arrange(p1, p2, p3, ncol = 1)
+
+```
+
+## Stability Measures
+```{r}
+# Stability measures
+clmethods <- c("hierarchical","kmeans","pam")
+stab <- clValid(df.scaled, nClust = 2:6, clMethods = clmethods, 
+                validation = "stability")
+
+# Display only optimal Scores
+summary(stab)
+```
+
+By using Kmeans clustering technique:
+
+- For the APN Kmeans clustering with two clusters again gives the best score (lowest score). 
+
+- For the AD Kmeans clustering with six clusters again gives the best score (lowest score).
+
+- For the ADM Kmeans clustering with two clusters again gives the best score (lowest score).
+
+- For the FOM Kmeans clustering with six clusters again gives the best score (lowest score).
+
+
+#### Visualization
+
+```{r}
+
+# Define k values and metrics
+k_values <- c(2, 3, 4, 5, 6)
+apn <- c(0.0383, 0.0996, 0.1692, 0.2184, 0.2938)
+ad <- c(2.3315, 1.9422, 1.8847, 1.7736, 1.7386)
+adm <- c(0.1772, 0.3141, 0.4626, 0.5381, 0.6714)
+fom <- c(0.6714, 0.5703, 0.5624, 0.5268, 0.5204)
+
+# Combine into a single data frame
+df_metrics <- data.frame(
+  k = rep(k_values, 4),
+  Metric = rep(c("APN", "AD", "ADM", "FOM"), each = length(k_values)),
+  Value = c(apn, ad, adm, fom)
+)
+
+```
+
+```{r}
+# Plot APN
+p1 <- ggplot(subset(df_metrics, Metric == "APN"), aes(x = k, y = Value, color = Metric)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "APN for Different k Values",
+       x = "Number of Clusters (k)",
+       y = "APN") +
+  theme_minimal()
+
+# Plot AD
+p2 <- ggplot(subset(df_metrics, Metric == "AD"), aes(x = k, y = Value, color = Metric)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "AD for Different k Values",
+       x = "Number of Clusters (k)",
+       y = "AD") +
+  theme_minimal()
+
+# Plot ADM
+p3 <- ggplot(subset(df_metrics, Metric == "ADM"), aes(x = k, y = Value, color = Metric)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "ADM for Different k Values",
+       x = "Number of Clusters (k)",
+       y = "ADM") +
+  theme_minimal()
+
+# Plot FOM
+p4 <- ggplot(subset(df_metrics, Metric == "FOM"), aes(x = k, y = Value, color = Metric)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "FOM for Different k Values",
+       x = "Number of Clusters (k)",
+       y = "FOM") +
+  theme_minimal()
+
+# Display plots
+print(p1)
+print(p2)
+print(p3)
+print(p4)
+
+```
+
+```{r}
+
+library(gridExtra)
+
+# Combine the plots into a grid
+grid.arrange(p1, p2, p3, p4, ncol = 2)
+
+```
+
+Conclusion: Each technique may result in a different number of optimal clusters. 
+
